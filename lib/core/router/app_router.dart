@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 import '../../data/models/product.dart';
+import '../../data/models/category.dart';
 import '../../data/mock/mock_data.dart';
 import '../../features/onboarding/splash_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
@@ -42,6 +43,8 @@ final appRouter = GoRouter(
       ),
     ),
     GoRoute(path: '/checkout', builder: (_, __) => const CheckoutScreen()),
+    // Cart is a focused full-screen page (no bottom tab bar).
+    GoRoute(path: '/cart', builder: (_, __) => const CartScreen()),
     GoRoute(
       path: '/all-products',
       builder: (_, state) => AllProductsScreen(
@@ -57,7 +60,7 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/category',
       builder: (_, state) =>
-          CategoryScreen(category: (state.extra as String?) ?? 'Collection'),
+          CategoryScreen(category: state.extra as Category?),
     ),
     GoRoute(
         path: '/edit-profile',
@@ -81,7 +84,6 @@ final appRouter = GoRouter(
         GoRoute(
             path: '/collection',
             builder: (_, __) => const CollectionScreen()),
-        GoRoute(path: '/cart', builder: (_, __) => const CartScreen()),
         GoRoute(
             path: '/profile', builder: (_, __) => const ProfileScreen()),
       ],

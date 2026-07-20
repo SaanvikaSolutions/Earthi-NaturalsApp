@@ -1,37 +1,87 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
-import '../../data/mock/mock_data.dart';
+import '../../core/widgets/count_badge.dart';
+import '../../data/models/category.dart';
 import '../../data/models/product.dart';
+import '../../data/repositories/product_repository.dart';
 import '../home/product_card.dart';
+import 'product_sort_filter.dart';
 
-/// Category listing — opened from a Home category tile. Shows the category
-/// title, product count, a 2-column grid and a Sort / Filter bar.
-class CategoryScreen extends StatelessWidget {
-  const CategoryScreen({super.key, required this.category});
+/// Category listing — opened from a Home category tile. Loads products for the
+/// category from the backend and lets the user narrow by subcategory.
+/// A null [category] means "Collection" (all products).
+class CategoryScreen extends ConsumerStatefulWidget {
+  const CategoryScreen({super.key, this.category});
 
-  /// Display name, e.g. 'Skin care'. 'Collection' (or unknown) shows all.
-  final String category;
+  final Category? category;
 
-  List<Product> get _products {
-    final matches = MockData.products
-        .where((p) => p.category.toLowerCase() == category.toLowerCase())
-        .toList();
-    // Fall back to the full catalogue for categories without mock items
-    // (so Body / Baby tiles still show a populated grid).
-    return matches.isEmpty ? MockData.products : matches;
-  }
+  @override
+  ConsumerState<CategoryScreen> createState() => _CategoryScreenState();
+}
+
+class _CategoryScreenState extends ConsumerState<CategoryScreen> {
+  /// Selected subcategory id, or null for "All".
+  String? _subcategoryId;
+  ProductSort _sort = ProductSort.popular;
+  String _priceBand = 'All';
+  bool _discountedOnly = false;
+
+  Category? get _category => widget.category;
+  bool get _isCollection => _category == null;
+
+  List<Product> _apply(List<Product> list) => applyProductSortFilter(
+        list,
+        sort: _sort,
+        priceBand: _priceBand,
+        discountedOnly: _discountedOnly,
+      );
 
   @override
   Widget build(BuildContext context) {
-    final products = _products;
-    // Plausible mock count so the header reads like the real catalogue.
-    final count = 2400 + category.length * 31;
+    final filter = (
+      categoryId: _category?.id,
+      subcategoryId: _subcategoryId,
+    );
+    final products = ref.watch(productsByCategoryProvider(filter));
+    final subs = _category?.subcategories ?? const <Subcategory>[];
+    final dataList = products.asData?.value ?? const <Product>[];
+
     return Scaffold(
+      bottomNavigationBar: SortFilterBar(
+        sortActive: _sort != ProductSort.popular,
+        filterActive: _priceBand != 'All' || _discountedOnly,
+        onSort: () async {
+          final s = await openSortSheet(context, _sort);
+          if (s != null) setState(() => _sort = s);
+        },
+        onFilter: () async {
+          final r = await openFilterSheet(
+            context,
+            priceBand: _priceBand,
+            discountedOnly: _discountedOnly,
+            resultCount: (band, disc) => applyProductSortFilter(
+              dataList,
+              sort: _sort,
+              priceBand: band,
+              discountedOnly: disc,
+            ).length,
+          );
+          if (r != null) {
+            setState(() {
+              _priceBand = r.priceBand;
+              _discountedOnly = r.discountedOnly;
+            });
+          }
+        },
+      ),
       body: SafeArea(
+        bottom: false,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _topBar(context),
             Padding(
@@ -40,39 +90,122 @@ class CategoryScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(category,
+                  Text(_isCollection ? 'Collection' : _category!.name,
                       style: const TextStyle(
                           fontSize: 24, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
-                  Text('$count  Products',
+                  Text(
+                      products.maybeWhen(
+                        data: (list) {
+                          final n = _apply(list).length;
+                          return '$n ${n == 1 ? 'Product' : 'Products'}';
+                        },
+                        orElse: () => '…',
+                      ),
                       style: const TextStyle(
                           fontSize: 14, color: AppColors.textMuted)),
                 ],
               ),
             ),
+            if (subs.isNotEmpty) _subcategoryChips(subs),
             const SizedBox(height: 8),
             Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.fromLTRB(
-                    Gap.pagePadding, 4, Gap.pagePadding, 16),
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 14,
-                  crossAxisSpacing: 14,
-                  childAspectRatio: 0.62,
-                ),
-                itemCount: products.length,
-                itemBuilder: (_, i) =>
-                    ProductCard(product: products[i], width: double.infinity),
+              child: products.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (e, _) => _errorState(filter),
+                data: (list) {
+                  final filtered = _apply(list);
+                  if (filtered.isEmpty) return _emptyState();
+                  return GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(
+                        Gap.pagePadding, 4, Gap.pagePadding, 16),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 14,
+                      crossAxisSpacing: 14,
+                      childAspectRatio: 0.62,
+                    ),
+                    itemCount: filtered.length,
+                    itemBuilder: (_, i) => ProductCard(
+                        product: filtered[i], width: double.infinity),
+                  );
+                },
               ),
             ),
-            _sortFilterBar(context),
           ],
         ),
       ),
     );
   }
+
+  /// Horizontal "All / <subcategory>" chips for this category.
+  Widget _subcategoryChips(List<Subcategory> subs) {
+    final items = <Subcategory?>[null, ...subs]; // null == "All"
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: Gap.pagePadding),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final sub = items[i];
+          final selected = sub?.id == _subcategoryId;
+          return ChoiceChip(
+            label: Text(sub?.name ?? 'All'),
+            selected: selected,
+            onSelected: (_) => setState(() => _subcategoryId = sub?.id),
+            showCheckmark: false,
+            selectedColor: AppColors.primary,
+            backgroundColor: AppColors.chipBg,
+            labelStyle: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: selected ? AppColors.onPrimary : AppColors.textPrimary,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(Radii.pill),
+              side: BorderSide(
+                  color: selected ? AppColors.primary : AppColors.inputBorder),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _emptyState() => const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.inventory_2_outlined,
+                size: 48, color: AppColors.textMuted),
+            SizedBox(height: 12),
+            Text('No products here yet',
+                style: TextStyle(color: AppColors.textMuted)),
+          ],
+        ),
+      );
+
+  Widget _errorState(ProductFilter filter) => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline,
+                size: 48, color: AppColors.textMuted),
+            const SizedBox(height: 12),
+            const Text("Couldn't load products",
+                style: TextStyle(color: AppColors.textMuted)),
+            const SizedBox(height: 12),
+            TextButton(
+                onPressed: () =>
+                    ref.invalidate(productsByCategoryProvider(filter)),
+                child: const Text('Retry')),
+          ],
+        ),
+      );
 
   Widget _topBar(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
@@ -84,98 +217,13 @@ class CategoryScreen extends StatelessWidget {
             const BrandLogo(width: 110),
             const Spacer(),
             IconButton(
-                onPressed: () {}, icon: const Icon(Icons.search)),
-            IconButton(
-                onPressed: () => context.push('/wishlist'),
-                icon: const Icon(Icons.favorite_border)),
-            IconButton(
-                onPressed: () => context.go('/cart'),
-                icon: const Icon(Icons.shopping_cart_outlined)),
+                onPressed: () => context.push('/all-products'),
+                icon: const Icon(Icons.search)),
+            WishlistIconButton(
+                onPressed: () => context.push('/wishlist')),
+            CartIconButton(
+                onPressed: () => context.go('/cart')),
           ],
         ),
       );
-
-  Widget _sortFilterBar(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(
-            Gap.pagePadding, 10, Gap.pagePadding, 10),
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          border: Border(top: BorderSide(color: AppColors.divider)),
-        ),
-        child: Row(
-          children: [
-            Expanded(child: _barButton(context, Icons.swap_vert, 'Sort by')),
-            const SizedBox(width: 14),
-            Expanded(child: _barButton(context, Icons.tune, 'Filter')),
-          ],
-        ),
-      );
-
-  Widget _barButton(BuildContext context, IconData icon, String label) =>
-      OutlinedButton(
-        onPressed: () => _showSheet(context, label),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.textPrimary,
-          side: const BorderSide(color: AppColors.inputBorder),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Radii.input)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 20),
-            const SizedBox(width: 8),
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w500)),
-          ],
-        ),
-      );
-
-  void _showSheet(BuildContext context, String which) {
-    final options = which == 'Sort by'
-        ? const [
-            'Popularity',
-            'Price: Low to High',
-            'Price: High to Low',
-            'Newest first',
-            'Customer rating',
-          ]
-        : const [
-            'Skin care',
-            'Hair care',
-            'Body Care',
-            'Baby Care',
-            'Under ₹500',
-            'Discounted',
-          ];
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(Gap.pagePadding, 16, 0, 8),
-              child: Text(which,
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700)),
-            ),
-            ...options.map((o) => ListTile(
-                  title: Text(o),
-                  trailing: const Icon(Icons.chevron_right,
-                      color: AppColors.textMuted),
-                  onTap: () => Navigator.pop(context),
-                )),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
 }

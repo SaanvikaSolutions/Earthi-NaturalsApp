@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/common_widgets.dart';
+import '../../data/api/api_client.dart';
+import '../../data/models/order.dart';
+import '../../data/models/payment_session.dart';
+import '../../data/repositories/order_repository.dart';
+import '../../data/repositories/payment_repository.dart';
 import '../cart/cart_controller.dart';
+import '../profile/address_controller.dart';
 
 class CheckoutScreen extends ConsumerWidget {
   const CheckoutScreen({super.key});
@@ -13,6 +20,7 @@ class CheckoutScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(cartProvider);
     final cart = ref.read(cartProvider.notifier);
+    final address = ref.watch(selectedAddressProvider);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7F5),
@@ -29,24 +37,32 @@ class CheckoutScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                children: const [
-                  Icon(Icons.local_shipping_outlined,
+                children: [
+                  const Icon(Icons.local_shipping_outlined,
                       color: AppColors.primary),
-                  SizedBox(width: 12),
-                  Text('Delivery to Keerthi, 500081',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                        address == null
+                            ? 'No delivery address'
+                            : 'Delivery to ${address.name}'
+                                '${address.pincode.isEmpty ? '' : ', ${address.pincode}'}',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
-              const Text(
-                  'Road no 23, Kakatiya hills, Madhapur, Hyderabad, India, 500081\n+91 8564254656',
-                  style:
-                      TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.4)),
+              Text(
+                  address == null
+                      ? 'Add an address to continue.'
+                      : '${address.line}\n${address.phone}',
+                  style: const TextStyle(
+                      fontSize: 13, color: AppColors.textMuted, height: 1.4)),
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
-                  onPressed: () {},
+                  onPressed: () => context.push('/addresses'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.textPrimary,
                     backgroundColor: AppColors.chipBg,
@@ -55,7 +71,9 @@ class CheckoutScreen extends ConsumerWidget {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(Radii.input)),
                   ),
-                  child: const Text('Change or Edit Address'),
+                  child: Text(address == null
+                      ? 'Add Delivery Address'
+                      : 'Change or Edit Address'),
                 ),
               ),
             ],
@@ -90,7 +108,10 @@ class CheckoutScreen extends ConsumerWidget {
                   child: Row(
                     children: [
                       SizedBox(
-                          width: 56, height: 56, child: ProductImage()),
+                          width: 56,
+                          height: 56,
+                          child: ProductImage(
+                              imageUrl: item.product.imageUrl)),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -121,14 +142,107 @@ class CheckoutScreen extends ConsumerWidget {
           child: PrimaryButton(
             label: 'Proceed to Pay',
             icon: Icons.arrow_forward,
-            onPressed: () => _stubPayment(context),
+            onPressed: items.isEmpty || address == null
+                ? null
+                : () => _placeOrder(context, ref),
           ),
         ),
       ),
     );
   }
 
-  void _stubPayment(BuildContext context) {
+  /// Runs the full Razorpay checkout: create the order server-side, show the
+  /// payment sheet, then have the backend verify the signature.
+  ///
+  /// The amount is never decided here — the server prices the cart from the
+  /// database, so what the app displays can't change what the customer is
+  /// charged.
+  Future<void> _placeOrder(BuildContext context, WidgetRef ref) async {
+    final cart = ref.read(cartProvider.notifier);
+    final address = ref.read(selectedAddressProvider);
+    final items = ref
+        .read(cartProvider)
+        .map((i) => OrderItem(
+              productSlug: i.product.id,
+              name: i.product.name,
+              size: i.size,
+              qty: i.qty,
+              price: i.product.price, // display only; the server re-prices
+            ))
+        .toList();
+    if (items.isEmpty) return;
+
+    final payments = ref.read(paymentRepositoryProvider);
+    final messenger = ScaffoldMessenger.of(context);
+
+    // 1 — reserve the order and open a Razorpay order for the real amount.
+    _showLoading(context);
+    final PaymentSession session;
+    try {
+      session = await payments.startCheckout(items);
+    } on ApiException catch (e) {
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      messenger.showSnackBar(SnackBar(
+          content: Text(e.statusCode == 401
+              ? 'Please sign in to place an order'
+              : e.message)));
+      return;
+    }
+    if (!context.mounted) return;
+    Navigator.pop(context); // the sheet needs the loader out of the way
+
+    // 2 — hand over to Razorpay.
+    final PaymentResult result;
+    try {
+      result = await payments.presentCheckout(session, contact: address?.phone);
+    } on PaymentCancelled catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+
+    // Money has moved. Clear the cart now so a retry can't charge them twice,
+    // whatever verification says next.
+    cart.clear();
+
+    // 3 — only the backend can validate the signature.
+    if (context.mounted) _showLoading(context);
+    try {
+      final order = await payments.verify(result);
+      ref.invalidate(ordersProvider);
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      _confirmation(context, order.reference);
+    } on ApiException catch (e) {
+      ref.invalidate(ordersProvider);
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      // A 400 means the signature genuinely didn't check out. Anything else
+      // (offline, timeout, 5xx) is us failing to confirm a payment that most
+      // likely succeeded — the Razorpay webhook settles it either way, so don't
+      // tell the customer it failed when they've been charged.
+      _confirmation(
+        context,
+        session.reference,
+        problem: e.statusCode == 400
+            ? "We couldn't verify this payment. If you were charged, quote this "
+                'reference to support and it will be resolved.'
+            : "Payment received. We couldn't confirm the order just now — it "
+                'will appear in My Orders shortly.',
+      );
+    }
+  }
+
+  void _showLoading(BuildContext context) => showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+
+  /// Success sheet. [problem] is set when the payment went through but we
+  /// couldn't confirm the order — the reference is what support needs, so it
+  /// stays on screen either way.
+  void _confirmation(BuildContext context, String reference, {String? problem}) {
     showModalBottomSheet(
       context: context,
       builder: (_) => Padding(
@@ -136,19 +250,31 @@ class CheckoutScreen extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.payments_outlined,
+            Icon(problem == null ? Icons.check_circle_outline : Icons.info_outline,
                 size: 48, color: AppColors.primary),
             const SizedBox(height: 12),
-            const Text('Payment gateway coming soon',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            Text(problem == null ? 'Order placed!' : 'Payment received',
+                style:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            if (problem != null) ...[
+              const SizedBox(height: 8),
+              Text(problem,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 13, color: AppColors.textMuted, height: 1.4)),
+            ],
             const SizedBox(height: 6),
-            const Text(
-                'Razorpay (UPI / cards / netbanking) will be wired in here.',
+            Text('Reference #$reference',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textMuted)),
+                style: const TextStyle(color: AppColors.textMuted)),
             const SizedBox(height: 20),
             PrimaryButton(
-                label: 'Got it', onPressed: () => Navigator.pop(context)),
+              label: 'View My Orders',
+              onPressed: () {
+                Navigator.pop(context);
+                context.go('/orders');
+              },
+            ),
           ],
         ),
       ),

@@ -4,7 +4,11 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
+import '../../core/widgets/count_badge.dart';
 import '../../data/mock/mock_data.dart';
+import '../../data/models/product.dart';
+import '../../data/models/category.dart';
+import '../../data/repositories/product_repository.dart';
 import 'banner_carousel.dart';
 import 'product_card.dart';
 import 'testimonial_marquee.dart';
@@ -14,20 +18,38 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Products come from the backend API. While the request is in flight (or if
+    // the device is offline) we fall back to the bundled mock catalogue so the
+    // layout never breaks.
+    final catalog = ref.watch(productCatalogProvider);
+    final List<Product> products = catalog.asData?.value ?? MockData.products;
+    final categories =
+        ref.watch(categoriesProvider).asData?.value ?? const <Category>[];
+    final bestSellers = products.take(4).toList();
+    final justDropped = products.reversed.take(4).toList();
+    final hairCare =
+        products.length > 6 ? products.sublist(2, 6) : products;
+
     return Scaffold(
       body: SafeArea(
-        child: CustomScrollView(
+        child: Column(
+          children: [
+            // Fixed header — stays pinned while the rest scrolls.
+            _topBar(context),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => ref.refresh(productCatalogProvider.future),
+                child: CustomScrollView(
           slivers: [
-            SliverToBoxAdapter(child: _topBar(context)),
-            SliverToBoxAdapter(child: _categoryMenu(context)),
+            SliverToBoxAdapter(child: _categoryMenu(context, categories)),
             const SliverToBoxAdapter(child: SizedBox(height: 16)),
             const SliverToBoxAdapter(child: BannerCarousel()),
-            _sectionHeader('Our best sellers'),
-            SliverToBoxAdapter(child: _horizontalProducts(MockData.bestSellers)),
-            _sectionHeader('Shop by concerns'),
+            _sectionHeader(context, 'Our best sellers'),
+            SliverToBoxAdapter(child: _horizontalProducts(bestSellers)),
+            _sectionHeader(context, 'Shop by concerns'),
             SliverToBoxAdapter(child: _concerns()),
-            _sectionHeader('Just Dropped'),
-            SliverToBoxAdapter(child: _horizontalProducts(MockData.justDropped)),
+            _sectionHeader(context, 'Just Dropped'),
+            SliverToBoxAdapter(child: _horizontalProducts(justDropped)),
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
             SliverToBoxAdapter(
               child: Padding(
@@ -43,7 +65,7 @@ class HomeScreen extends ConsumerWidget {
               ),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
-            _sectionHeader('Everyday glow'),
+            _sectionHeader(context, 'Everyday glow'),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(
                   Gap.pagePadding, 0, Gap.pagePadding, 24),
@@ -57,8 +79,8 @@ class HomeScreen extends ConsumerWidget {
                 ),
                 delegate: SliverChildBuilderDelegate(
                   (context, i) => ProductCard(
-                      product: MockData.products[i], width: double.infinity),
-                  childCount: MockData.products.length,
+                      product: products[i], width: double.infinity),
+                  childCount: products.length,
                 ),
               ),
             ),
@@ -72,15 +94,17 @@ class HomeScreen extends ConsumerWidget {
             ),
             // Gentle hair love — hair-care carousel.
             _plainHeader('Gentle hair love'),
-            SliverToBoxAdapter(
-                child: _horizontalProducts(
-                    MockData.products.where((p) => p.category == 'Hair care').toList())),
+            SliverToBoxAdapter(child: _horizontalProducts(hairCare)),
             SliverToBoxAdapter(child: _viewAllButton(context)),
             // Baby — baby-care carousel (reusing the catalogue as mock).
             _plainHeader('Baby'),
-            SliverToBoxAdapter(child: _horizontalProducts(MockData.bestSellers)),
+            SliverToBoxAdapter(child: _horizontalProducts(bestSellers)),
             SliverToBoxAdapter(child: _viewAllButton(context)),
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -126,7 +150,7 @@ class HomeScreen extends ConsumerWidget {
         padding: const EdgeInsets.only(top: 14),
         child: Center(
           child: OutlinedButton(
-            onPressed: () => context.go('/collection'),
+            onPressed: () => context.push('/all-products'),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.textPrimary,
               side: const BorderSide(color: AppColors.inputBorder),
@@ -142,49 +166,60 @@ class HomeScreen extends ConsumerWidget {
       );
 
   Widget _topBar(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.pagePadding, 4, 8, 8),
+        padding: const EdgeInsets.fromLTRB(Gap.pagePadding, 0, 8, 4),
         child: Row(
           children: [
             const BrandLogo(width: 120),
             const Spacer(),
             IconButton(
-                onPressed: () {}, icon: const Icon(Icons.search)),
+                onPressed: () => context.push('/all-products'),
+                icon: const Icon(Icons.search)),
             IconButton(
-                onPressed: () {},
+                onPressed: () => context.push('/notifications'),
                 icon: const Icon(Icons.notifications_none)),
-            IconButton(
-                onPressed: () => context.push('/wishlist'),
-                icon: const Icon(Icons.favorite_border)),
+            WishlistIconButton(
+                onPressed: () => context.push('/wishlist')),
           ],
         ),
       );
 
-  // Horizontal category tiles (Collection / Skin Care / Hair Care / ...).
-  Widget _categoryMenu(BuildContext context) {
-    const cats = <_Category>[
-      _Category('Collection', 'assets/images/cat_collection.png'),
-      _Category('Skin Care', 'assets/images/cat_skin.png'),
-      _Category('Hair Care', 'assets/images/cat_hair.png'),
-      _Category('Body Care', 'assets/images/cat_body.png'),
-      _Category('Baby Care', 'assets/images/cat_baby.png'),
+  // Maps a real category name (Skin / Hair / Body / Baby) to a tile image,
+  // falling back to the generic collection art for anything unrecognised.
+  static String _categoryImage(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('skin')) return 'assets/images/cat_skin.png';
+    if (n.contains('hair')) return 'assets/images/cat_hair.png';
+    if (n.contains('baby')) return 'assets/images/cat_baby.png';
+    if (n.contains('body')) return 'assets/images/cat_body.png';
+    return 'assets/images/cat_collection.png';
+  }
+
+  // Horizontal category tiles: a "Collection" (all) tile followed by the real
+  // categories loaded from the backend.
+  Widget _categoryMenu(BuildContext context, List<Category> categories) {
+    // (label, image, category) — null category == Collection / all.
+    final tiles = <(String, String, Category?)>[
+      ('Collection', 'assets/images/cat_collection.png', null),
+      for (final c in categories) (c.name, _categoryImage(c.name), c),
     ];
     return SizedBox(
       height: 118,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: Gap.pagePadding),
-        itemCount: cats.length,
+        itemCount: tiles.length,
         separatorBuilder: (_, __) => const SizedBox(width: 14),
         itemBuilder: (_, i) {
-          final c = cats[i];
+          final (label, image, category) = tiles[i];
           return GestureDetector(
-            onTap: () => context.push('/category', extra: c.label),
+            onTap: () => context.push('/category', extra: category),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(14),
                   child: Image.asset(
-                    c.image,
+                    image,
                     width: 84,
                     height: 84,
                     fit: BoxFit.cover,
@@ -193,8 +228,8 @@ class HomeScreen extends ConsumerWidget {
                 const SizedBox(height: 8),
                 SizedBox(
                   width: 84,
-                  child: Text(c.label,
-                      textAlign: TextAlign.center,
+                  child: Text(label,
+                      textAlign: TextAlign.left,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -208,7 +243,8 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  SliverToBoxAdapter _sectionHeader(String title) => SliverToBoxAdapter(
+  SliverToBoxAdapter _sectionHeader(BuildContext context, String title) =>
+      SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
               Gap.pagePadding, 24, Gap.pagePadding, 12),
@@ -218,9 +254,12 @@ class HomeScreen extends ConsumerWidget {
               Text(title,
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w700)),
-              const Text('View all',
-                  style: TextStyle(
-                      fontSize: 13, color: AppColors.primary)),
+              GestureDetector(
+                onTap: () => context.push('/all-products'),
+                child: const Text('View all',
+                    style: TextStyle(
+                        fontSize: 13, color: AppColors.primary)),
+              ),
             ],
           ),
         ),
@@ -269,11 +308,5 @@ class HomeScreen extends ConsumerWidget {
           ),
         ),
       );
-}
-
-class _Category {
-  final String label;
-  final String image;
-  const _Category(this.label, this.image);
 }
 

@@ -19,38 +19,54 @@ class AppShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final location = GoRouterState.of(context).uri.path;
-    final cartCount = ref.watch(cartProvider).length;
+    final cartCount = ref.watch(cartCountProvider);
+    final onHome = location.startsWith('/home');
 
-    return Scaffold(
-      body: child,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _indexFor(location),
-        onDestinationSelected: (i) => context.go(_tabs[i]),
-        indicatorColor: AppColors.primary.withValues(alpha: 0.12),
-        backgroundColor: AppColors.surface,
-        destinations: [
-          const NavigationDestination(
+    // Tab switches use `context.go`, which replaces the stack — so the system
+    // back button has nothing to pop and would otherwise exit the app from any
+    // tab. Intercept it: from a non-Home tab go back to Home; only Home exits.
+    return PopScope(
+      canPop: onHome,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) context.go('/home');
+      },
+      child: Scaffold(
+        body: child,
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _indexFor(location),
+          onDestinationSelected: (i) => context.go(_tabs[i]),
+          indicatorColor: AppColors.primary.withValues(alpha: 0.12),
+          backgroundColor: AppColors.surface,
+          destinations: [
+            const NavigationDestination(
               icon: Icon(Icons.home_outlined),
               selectedIcon: Icon(Icons.home, color: AppColors.primary),
-              label: 'Home'),
-          const NavigationDestination(
+              label: 'Home',
+            ),
+            const NavigationDestination(
               icon: Icon(Icons.grid_view_outlined),
               selectedIcon: Icon(Icons.grid_view, color: AppColors.primary),
-              label: 'Collection'),
-          NavigationDestination(
+              label: 'Collection',
+            ),
+            NavigationDestination(
               icon: Badge(
                 isLabelVisible: cartCount > 0,
                 label: Text('$cartCount'),
                 child: const Icon(Icons.shopping_bag_outlined),
               ),
-              selectedIcon:
-                  const Icon(Icons.shopping_bag, color: AppColors.primary),
-              label: 'Cart'),
-          const NavigationDestination(
+              selectedIcon: const Icon(
+                Icons.shopping_bag,
+                color: AppColors.primary,
+              ),
+              label: 'Cart',
+            ),
+            const NavigationDestination(
               icon: Icon(Icons.person_outline),
               selectedIcon: Icon(Icons.person, color: AppColors.primary),
-              label: 'Profile'),
-        ],
+              label: 'Profile',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -69,11 +85,16 @@ class PlaceholderTab extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.construction_outlined,
-                size: 48, color: AppColors.textMuted),
+            const Icon(
+              Icons.construction_outlined,
+              size: 48,
+              color: AppColors.textMuted,
+            ),
             const SizedBox(height: 12),
-            Text('$title — coming next',
-                style: const TextStyle(color: AppColors.textMuted)),
+            Text(
+              '$title — coming next',
+              style: const TextStyle(color: AppColors.textMuted),
+            ),
           ],
         ),
       ),

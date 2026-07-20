@@ -1,22 +1,35 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/app_text_field.dart';
+import '../../data/api/api_client.dart';
+import '../auth/auth_controller.dart';
 
 /// Edit Profile — opened from the pencil on the Profile header.
-class EditProfileScreen extends StatefulWidget {
+class EditProfileScreen extends ConsumerStatefulWidget {
   const EditProfileScreen({super.key});
 
   @override
-  State<EditProfileScreen> createState() => _EditProfileScreenState();
+  ConsumerState<EditProfileScreen> createState() => _EditProfileScreenState();
 }
 
-class _EditProfileScreenState extends State<EditProfileScreen> {
-  final _name = TextEditingController(text: 'Rishika Patel');
-  final _phone = TextEditingController(text: '+91 98765 43210');
-  final _email = TextEditingController(text: 'rishika@example.com');
+class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
+  late final TextEditingController _name;
+  late final TextEditingController _phone;
+  late final TextEditingController _email;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final user = ref.read(authControllerProvider).asData?.value;
+    _name = TextEditingController(text: user?.name ?? '');
+    _phone = TextEditingController(text: user?.phone ?? '');
+    _email = TextEditingController(text: user?.email ?? '');
+  }
 
   @override
   void dispose() {
@@ -26,18 +39,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
-  void _save() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Profile updated'),
-        duration: Duration(milliseconds: 900),
-      ),
-    );
-    context.pop();
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await ref.read(authControllerProvider.notifier).updateProfile(
+            name: _name.text.trim(),
+            phone: _phone.text.trim(),
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profile updated'),
+          duration: Duration(milliseconds: 900),
+        ),
+      );
+      context.pop();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final initials =
+        ref.watch(authControllerProvider).asData?.value?.initials ?? '?';
     return Scaffold(
       appBar: AppBar(
         leading: const BackButton(),
@@ -50,7 +80,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: Gap.lg),
-              _avatar(),
+              _avatar(initials),
               const SizedBox(height: Gap.xl),
               const _Label('Full Name'),
               AppTextField(hint: 'Full Name', controller: _name),
@@ -65,9 +95,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               AppTextField(
                   hint: 'Email Address',
                   controller: _email,
+                  enabled: false,
                   keyboardType: TextInputType.emailAddress),
               const SizedBox(height: Gap.xl),
-              PrimaryButton(label: 'Save Changes', onPressed: _save),
+              PrimaryButton(
+                label: _saving ? 'Saving…' : 'Save Changes',
+                onPressed: _saving ? null : _save,
+              ),
             ],
           ),
         ),
@@ -75,7 +109,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
   }
 
-  Widget _avatar() => Center(
+  Widget _avatar(String initials) => Center(
         child: Stack(
           children: [
             Container(
@@ -86,8 +120,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 shape: BoxShape.circle,
               ),
               alignment: Alignment.center,
-              child: const Text('RP',
-                  style: TextStyle(
+              child: Text(initials,
+                  style: const TextStyle(
                       color: AppColors.onPrimary,
                       fontSize: 28,
                       fontWeight: FontWeight.w700)),

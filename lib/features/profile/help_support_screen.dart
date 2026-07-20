@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../core/config/app_config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 
-/// Help & Support — contact options plus an FAQ accordion.
-class HelpSupportScreen extends StatelessWidget {
+/// Help & Support — contact options plus an FAQ accordion where only one
+/// question is open at a time.
+class HelpSupportScreen extends StatefulWidget {
   const HelpSupportScreen({super.key});
+
+  @override
+  State<HelpSupportScreen> createState() => _HelpSupportScreenState();
+}
+
+class _HelpSupportScreenState extends State<HelpSupportScreen> {
+  /// Index of the open FAQ, or null when all are collapsed.
+  int? _openIndex;
 
   static const _faqs = <List<String>>[
     [
@@ -38,14 +49,39 @@ class HelpSupportScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(Gap.pagePadding),
           children: [
+            // Live Chat is intentionally absent until a chat provider is
+            // integrated — a button that opens nothing is worse than no button.
             Row(
               children: [
                 Expanded(
-                    child: _contact(Icons.chat_bubble_outline, 'Live Chat')),
+                  child: _contact(
+                    Icons.call_outlined,
+                    'Call Us',
+                    onTap: () => _launch(
+                      context,
+                      Uri(scheme: 'tel', path: SupportContact.phone),
+                      'No phone app is available on this device',
+                    ),
+                  ),
+                ),
                 const SizedBox(width: 12),
-                Expanded(child: _contact(Icons.call_outlined, 'Call Us')),
-                const SizedBox(width: 12),
-                Expanded(child: _contact(Icons.mail_outline, 'Email')),
+                Expanded(
+                  child: _contact(
+                    Icons.mail_outline,
+                    'Email',
+                    onTap: () => _launch(
+                      context,
+                      Uri(
+                        scheme: 'mailto',
+                        path: SupportContact.email,
+                        queryParameters: const {
+                          'subject': 'Earthi Naturals — Support request',
+                        },
+                      ),
+                      'No mail app is set up on this device',
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: Gap.xl),
@@ -53,50 +89,72 @@ class HelpSupportScreen extends StatelessWidget {
                 style:
                     TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: Gap.sm),
-            ..._faqs.map((f) => Theme(
-                  data: Theme.of(context)
-                      .copyWith(dividerColor: Colors.transparent),
-                  child: ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding:
-                        const EdgeInsets.only(bottom: 12, right: 24),
-                    iconColor: AppColors.primary,
-                    collapsedIconColor: AppColors.textMuted,
-                    title: Text(f[0],
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w600)),
-                    children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(f[1],
-                            style: const TextStyle(
-                                fontSize: 13,
-                                color: AppColors.textMuted,
-                                height: 1.5)),
-                      ),
-                    ],
-                  ),
-                )),
+            for (var i = 0; i < _faqs.length; i++)
+              Theme(
+                data:
+                    Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  // Rebuilding with a key tied to the open item lets
+                  // initiallyExpanded collapse whichever tile was open.
+                  key: ValueKey('faq-$i-${_openIndex == i}'),
+                  initiallyExpanded: _openIndex == i,
+                  onExpansionChanged: (expanded) =>
+                      setState(() => _openIndex = expanded ? i : null),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 12, right: 24),
+                  iconColor: AppColors.primary,
+                  collapsedIconColor: AppColors.textMuted,
+                  title: Text(_faqs[i][0],
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(_faqs[i][1],
+                          style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textMuted,
+                              height: 1.5)),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _contact(IconData icon, String label) => Container(
-        padding: const EdgeInsets.symmetric(vertical: Gap.md),
-        decoration: BoxDecoration(
-          color: AppColors.chipBg,
+  /// Hands [uri] to the platform, telling the user when nothing can handle it
+  /// (e.g. a tablet with no dialer, or no mail account configured).
+  static Future<void> _launch(
+      BuildContext context, Uri uri, String unavailableMessage) async {
+    final launched = await launchUrl(uri).catchError((_) => false);
+    if (launched || !context.mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(unavailableMessage)));
+  }
+
+  Widget _contact(IconData icon, String label,
+          {required VoidCallback onTap}) =>
+      Material(
+        color: AppColors.chipBg,
+        borderRadius: BorderRadius.circular(Radii.card),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(Radii.card),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: AppColors.primary),
-            const SizedBox(height: 8),
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600)),
-          ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: Gap.md),
+            child: Column(
+              children: [
+                Icon(icon, color: AppColors.primary),
+                const SizedBox(height: 8),
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
         ),
       );
 }

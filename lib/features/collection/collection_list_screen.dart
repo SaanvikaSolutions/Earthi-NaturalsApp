@@ -5,6 +5,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
 import '../../core/widgets/common_widgets.dart';
+import '../../core/widgets/count_badge.dart';
 import '../../data/mock/mock_data.dart';
 import '../../data/models/product.dart';
 import '../cart/cart_controller.dart';
@@ -22,14 +23,30 @@ class _Config {
 }
 
 const _configs = {
-  CollectionKind.newArrival:
-      _Config('Just Dropped', 'New', Color(0xFFE6F0DD), AppColors.primary),
-  CollectionKind.bestseller:
-      _Config('Bestsellers', 'Bestseller', AppColors.accentBlack, Colors.white),
-  CollectionKind.topRated:
-      _Config('Top Rated', 'Top Rated', AppColors.accentBlack, Colors.white),
-  CollectionKind.discount:
-      _Config('Discount', 'Sale', AppColors.accentBlack, Colors.white),
+  CollectionKind.newArrival: _Config(
+    'Just Dropped',
+    'New',
+    Color(0xFFE6F0DD),
+    AppColors.primary,
+  ),
+  CollectionKind.bestseller: _Config(
+    'Bestsellers',
+    'Bestseller',
+    AppColors.accentBlack,
+    Colors.white,
+  ),
+  CollectionKind.topRated: _Config(
+    'Top Rated',
+    'Top Rated',
+    AppColors.accentBlack,
+    Colors.white,
+  ),
+  CollectionKind.discount: _Config(
+    'Discount',
+    'Sale',
+    AppColors.accentBlack,
+    Colors.white,
+  ),
 };
 
 enum _Sort { popular, priceLowHigh, priceHighLow, rating, discount }
@@ -51,7 +68,12 @@ class _CollectionListScreenState extends State<CollectionListScreen> {
     _Sort.rating: 'Customer rating',
     _Sort.discount: 'Discount',
   };
-  static const _priceBands = ['All', 'Under ₹500', '₹500 – ₹1000', 'Above ₹1000'];
+  static const _priceBands = [
+    'All',
+    'Under ₹500',
+    '₹500 – ₹1000',
+    'Above ₹1000',
+  ];
 
   _Sort _sort = _Sort.popular;
   String _priceBand = 'All';
@@ -113,7 +135,9 @@ class _CollectionListScreenState extends State<CollectionListScreen> {
   Widget build(BuildContext context) {
     final products = _products;
     return Scaffold(
+      bottomNavigationBar: SafeArea(top: false, child: _bottomBar()),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             _topBar(),
@@ -123,21 +147,26 @@ class _CollectionListScreenState extends State<CollectionListScreen> {
                   SliverToBoxAdapter(child: _header(products.length)),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(
-                        Gap.pagePadding, 4, Gap.pagePadding, 24),
+                      Gap.pagePadding,
+                      4,
+                      Gap.pagePadding,
+                      24,
+                    ),
                     sliver: SliverGrid(
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 18,
-                        crossAxisSpacing: 14,
-                        childAspectRatio: 0.54,
-                      ),
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 18,
+                            crossAxisSpacing: 14,
+                            childAspectRatio: 0.54,
+                          ),
                       delegate: SliverChildBuilderDelegate(
                         (_, i) => _CollectionCard(
-                            product: products[i],
-                            badge: _cfg.badge,
-                            badgeBg: _cfg.badgeBg,
-                            badgeFg: _cfg.badgeFg),
+                          product: products[i],
+                          badge: _cfg.badge,
+                          badgeBg: _cfg.badgeBg,
+                          badgeFg: _cfg.badgeFg,
+                        ),
                         childCount: products.length,
                       ),
                     ),
@@ -145,7 +174,6 @@ class _CollectionListScreenState extends State<CollectionListScreen> {
                 ],
               ),
             ),
-            _bottomBar(),
           ],
         ),
       ),
@@ -153,92 +181,113 @@ class _CollectionListScreenState extends State<CollectionListScreen> {
   }
 
   Widget _topBar() => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
-        child: Row(
-          children: [
-            IconButton(
-                onPressed: () => context.pop(),
-                icon: const Icon(Icons.arrow_back)),
-            const BrandLogo(width: 110),
-            const Spacer(),
-            IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
-            IconButton(
-                onPressed: () => context.push('/wishlist'),
-                icon: const Icon(Icons.favorite_border)),
-            IconButton(
-                onPressed: () => context.push('/cart'),
-                icon: const Icon(Icons.shopping_cart_outlined)),
-          ],
+    padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
+    child: Row(
+      children: [
+        IconButton(
+          onPressed: () => context.pop(),
+          icon: const Icon(Icons.arrow_back),
         ),
-      );
+        const BrandLogo(width: 110),
+        const Spacer(),
+        IconButton(
+          onPressed: () => context.push('/all-products'),
+          icon: const Icon(Icons.search),
+        ),
+        WishlistIconButton(onPressed: () => context.push('/wishlist')),
+        CartIconButton(onPressed: () => context.push('/cart')),
+      ],
+    ),
+  );
 
   Widget _header(int count) => Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.pagePadding, 4, Gap.pagePadding, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_cfg.title,
-                style: const TextStyle(
-                    fontFamily: 'Georgia',
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text('$count Products',
-                style: const TextStyle(
-                    fontSize: 15, color: AppColors.textMuted)),
-          ],
+    padding: const EdgeInsets.fromLTRB(Gap.pagePadding, 4, Gap.pagePadding, 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _cfg.title,
+          style: const TextStyle(
+            fontFamily: 'Georgia',
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-      );
+        const SizedBox(height: 4),
+        Text(
+          '$count Products',
+          style: const TextStyle(fontSize: 15, color: AppColors.textMuted),
+        ),
+      ],
+    ),
+  );
 
   Widget _bottomBar() => Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          border: Border(top: BorderSide(color: AppColors.divider)),
+    decoration: const BoxDecoration(
+      color: AppColors.surface,
+      border: Border(top: BorderSide(color: AppColors.divider)),
+    ),
+    padding: const EdgeInsets.fromLTRB(
+      Gap.pagePadding,
+      10,
+      Gap.pagePadding,
+      10,
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: _barButton(
+            Icons.swap_vert,
+            'Sort by',
+            active: _sort != _Sort.popular,
+            onTap: _openSort,
+          ),
         ),
-        padding: const EdgeInsets.fromLTRB(
-            Gap.pagePadding, 10, Gap.pagePadding, 10),
-        child: Row(
-          children: [
-            Expanded(
-              child: _barButton(Icons.swap_vert, 'Sort by',
-                  active: _sort != _Sort.popular, onTap: _openSort),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _barButton(Icons.tune, 'Filter',
-                  active: _priceBand != 'All', onTap: _openFilter),
-            ),
-          ],
+        const SizedBox(width: 12),
+        Expanded(
+          child: _barButton(
+            Icons.tune,
+            'Filter',
+            active: _priceBand != 'All',
+            onTap: _openFilter,
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
-  Widget _barButton(IconData icon, String label,
-          {required bool active, required VoidCallback onTap}) =>
-      OutlinedButton(
-        onPressed: onTap,
-        style: OutlinedButton.styleFrom(
-          foregroundColor:
-              active ? AppColors.primary : AppColors.textPrimary,
-          backgroundColor: active
-              ? AppColors.primary.withValues(alpha: 0.08)
-              : Colors.transparent,
-          side: BorderSide(
-              color: active ? AppColors.primary : AppColors.inputBorder),
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(Radii.input)),
+  Widget _barButton(
+    IconData icon,
+    String label, {
+    required bool active,
+    required VoidCallback onTap,
+  }) => OutlinedButton(
+    onPressed: onTap,
+    style: OutlinedButton.styleFrom(
+      foregroundColor: active ? AppColors.primary : AppColors.textPrimary,
+      backgroundColor: active
+          ? AppColors.primary.withValues(alpha: 0.08)
+          : Colors.transparent,
+      side: BorderSide(
+        color: active ? AppColors.primary : AppColors.inputBorder,
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.input),
+      ),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 19),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 19),
-            const SizedBox(width: 8),
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600)),
-          ],
-        ),
-      );
+      ],
+    ),
+  );
 
   void _openSort() {
     showModalBottomSheet(
@@ -253,19 +302,23 @@ class _CollectionListScreenState extends State<CollectionListScreen> {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(Gap.pagePadding, 16, 0, 8),
-              child: Text('Sort by',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              child: Text(
+                'Sort by',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
             ),
-            ..._Sort.values.map((s) => RadioListTile<_Sort>(
-                  value: s,
-                  groupValue: _sort,
-                  activeColor: AppColors.primary,
-                  title: Text(_sortLabels[s]!),
-                  onChanged: (v) {
-                    setState(() => _sort = v!);
-                    Navigator.pop(context);
-                  },
-                )),
+            ..._Sort.values.map(
+              (s) => RadioListTile<_Sort>(
+                value: s,
+                groupValue: _sort,
+                activeColor: AppColors.primary,
+                title: Text(_sortLabels[s]!),
+                onChanged: (v) {
+                  setState(() => _sort = v!);
+                  Navigator.pop(context);
+                },
+              ),
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -287,20 +340,24 @@ class _CollectionListScreenState extends State<CollectionListScreen> {
             children: [
               const Padding(
                 padding: EdgeInsets.fromLTRB(Gap.pagePadding, 16, 0, 4),
-                child: Text('Filter by price',
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                child: Text(
+                  'Filter by price',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
               ),
-              ..._priceBands.map((band) => RadioListTile<String>(
-                    value: band,
-                    groupValue: _priceBand,
-                    activeColor: AppColors.primary,
-                    dense: true,
-                    title: Text(band),
-                    onChanged: (v) {
-                      setState(() => _priceBand = v!);
-                      setSheet(() {});
-                    },
-                  )),
+              ..._priceBands.map(
+                (band) => RadioListTile<String>(
+                  value: band,
+                  groupValue: _priceBand,
+                  activeColor: AppColors.primary,
+                  dense: true,
+                  title: Text(band),
+                  onChanged: (v) {
+                    setState(() => _priceBand = v!);
+                    setSheet(() {});
+                  },
+                ),
+              ),
               const SizedBox(height: 8),
             ],
           ),
@@ -343,35 +400,45 @@ class _CollectionCardState extends ConsumerState<_CollectionCard> {
             aspectRatio: 1,
             child: Stack(
               children: [
-                Positioned.fill(child: ProductImage(label: p.name)),
+                Positioned.fill(
+                  child: ProductImage(label: p.name, imageUrl: p.imageUrl),
+                ),
                 Positioned(
                   top: 10,
                   right: 10,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: widget.badgeBg,
                       borderRadius: BorderRadius.circular(Radii.badge),
                     ),
-                    child: Text(widget.badge,
-                        style: TextStyle(
-                            color: widget.badgeFg,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600)),
+                    child: Text(
+                      widget.badge,
+                      style: TextStyle(
+                        color: widget.badgeFg,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          Text(p.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textMuted)),
+          Text(
+            p.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textMuted,
+            ),
+          ),
           const SizedBox(height: 5),
           _stars(p.rating, p.reviews),
           const SizedBox(height: 6),
@@ -384,9 +451,7 @@ class _CollectionCardState extends ConsumerState<_CollectionCard> {
                   height: 40,
                   child: ElevatedButton(
                     onPressed: () {
-                      ref
-                          .read(cartProvider.notifier)
-                          .add(p, p.sizes.first);
+                      ref.read(cartProvider.notifier).add(p, p.sizes.first);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('${p.name} added to cart'),
@@ -400,11 +465,16 @@ class _CollectionCardState extends ConsumerState<_CollectionCard> {
                       elevation: 0,
                       padding: EdgeInsets.zero,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(Radii.pill)),
+                        borderRadius: BorderRadius.circular(Radii.pill),
+                      ),
                     ),
-                    child: const Text('ADD TO CART',
-                        style: TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'ADD TO CART',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -437,12 +507,16 @@ class _CollectionCardState extends ConsumerState<_CollectionCard> {
     return Row(
       children: [
         for (var i = 0; i < 5; i++)
-          Icon(i < full ? Icons.star : Icons.star_border,
-              size: 16, color: AppColors.star),
+          Icon(
+            i < full ? Icons.star : Icons.star_border,
+            size: 16,
+            color: AppColors.star,
+          ),
         const SizedBox(width: 6),
-        Text('$reviews reviews',
-            style: const TextStyle(
-                fontSize: 13, color: AppColors.textMuted)),
+        Text(
+          '$reviews reviews',
+          style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+        ),
       ],
     );
   }

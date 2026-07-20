@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/product.dart';
 import '../../data/mock/mock_data.dart';
@@ -39,9 +40,31 @@ class CartController extends Notifier<List<CartItem>> {
     }
   }
 
+  /// Switches a line to [size]. If the same product already exists at that
+  /// size, the two lines merge rather than leaving a duplicate.
+  void setSize(CartItem item, String size) {
+    if (item.size == size) return;
+    final existing = state.firstWhereOrNull(
+        (i) => i != item && i.product.id == item.product.id && i.size == size);
+    if (existing != null) {
+      existing.qty += item.qty;
+      state = state.where((i) => i != item).toList();
+      return;
+    }
+    state = [
+      for (final i in state)
+        if (i == item)
+          CartItem(product: i.product, size: size, qty: i.qty)
+        else
+          i,
+    ];
+  }
+
   void remove(CartItem item) {
     state = state.where((i) => i != item).toList();
   }
+
+  void clear() => state = [];
 
   int get totalItems => state.fold(0, (sum, i) => sum + i.qty);
   int get cartTotal => state.fold(0, (sum, i) => sum + i.product.price * i.qty);
@@ -53,3 +76,9 @@ class CartController extends Notifier<List<CartItem>> {
 
 final cartProvider =
     NotifierProvider<CartController, List<CartItem>>(CartController.new);
+
+/// Total number of items in the cart (sum of line-item quantities).
+/// Reactively recomputes whenever the cart changes — used for icon badges.
+final cartCountProvider = Provider<int>(
+  (ref) => ref.watch(cartProvider).fold<int>(0, (sum, i) => sum + i.qty),
+);

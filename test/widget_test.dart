@@ -5,7 +5,8 @@ import 'package:earthi_naturals/core/router/app_router.dart';
 import 'package:earthi_naturals/core/theme/app_theme.dart';
 
 void main() {
-  testWidgets('App boots to the login screen', (tester) async {
+  testWidgets('App boots to the login screen', (tester) async
+   {
 
     
     await tester.pumpWidget(

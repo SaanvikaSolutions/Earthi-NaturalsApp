@@ -11,6 +11,9 @@ class AppTextField extends StatefulWidget {
     this.obscure = false,
     this.keyboardType,
     this.suffix,
+    this.enabled = true,
+    this.autocorrect = true,
+    this.textCapitalization = TextCapitalization.none,
   });
 
   final String hint;
@@ -18,6 +21,13 @@ class AppTextField extends StatefulWidget {
   final bool obscure;
   final TextInputType? keyboardType;
   final Widget? suffix;
+  final bool enabled;
+
+  /// Whether to allow keyboard autocorrect/suggestions. Always disabled for
+  /// [obscure] (password) fields so the keyboard can never silently rewrite the
+  /// entered value.
+  final bool autocorrect;
+  final TextCapitalization textCapitalization;
 
   @override
   State<AppTextField> createState() => _AppTextFieldState();
@@ -34,10 +44,18 @@ class _AppTextFieldState extends State<AppTextField> {
 
   @override
   Widget build(BuildContext context) {
+    // Passwords must never be autocorrected, suggested, or auto-capitalized —
+    // otherwise the value stored at signup won't match what's typed at login.
+    final allowAutocorrect = widget.autocorrect && !widget.obscure;
     return TextField(
       controller: widget.controller,
+      enabled: widget.enabled,
       obscureText: _hidden,
       keyboardType: widget.keyboardType,
+      autocorrect: allowAutocorrect,
+      enableSuggestions: allowAutocorrect,
+      textCapitalization:
+          widget.obscure ? TextCapitalization.none : widget.textCapitalization,
       style: const TextStyle(fontSize: 15, color: AppColors.textPrimary),
       decoration: InputDecoration(
         hintText: widget.hint,

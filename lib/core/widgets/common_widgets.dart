@@ -95,25 +95,56 @@ class RatingRow extends StatelessWidget {
   }
 }
 
-/// Image placeholder with a soft beige tint (stands in for product photos
-/// until real assets are wired in).
+/// Renders a product photo from [imageUrl] — a bundled asset path
+/// (`assets/...`) or an `http(s)` URL. Falls back to a soft beige placeholder
+/// while loading or when no/invalid image is available.
 class ProductImage extends StatelessWidget {
-  const ProductImage({super.key, this.radius = Radii.card, this.label});
+  const ProductImage({
+    super.key,
+    this.radius = Radii.card,
+    this.label,
+    this.imageUrl,
+  });
+
   final double radius;
   final String? label;
+  final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
+    final url = imageUrl?.trim() ?? '';
+    final Widget content;
+    if (url.isEmpty) {
+      content = _placeholder();
+    } else if (url.startsWith('http')) {
+      content = Image.network(
+        url,
+        fit: BoxFit.contain,
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : _placeholder(),
+        errorBuilder: (_, __, ___) => _placeholder(),
+      );
+    } else {
+      content = Image.asset(
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => _placeholder(),
+      );
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: Container(
         color: const Color(0xFFEDE6DC),
-        child: const Center(
-          child: Icon(Icons.spa, color: Color(0xFFB9A88F), size: 34),
-        ),
+        padding: const EdgeInsets.all(6),
+        child: Center(child: content),
       ),
     );
   }
+
+  Widget _placeholder() => const Center(
+        child: Icon(Icons.spa, color: Color(0xFFB9A88F), size: 34),
+      );
 }
 
 /// Quantity stepper (– n +).

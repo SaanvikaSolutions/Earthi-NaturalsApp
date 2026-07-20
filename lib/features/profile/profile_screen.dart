@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../auth/auth_controller.dart';
 
 /// Profile tab — account header plus a list of account / settings actions.
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   static const _items = <_MenuItem>[
@@ -25,7 +27,7 @@ class ProfileScreen extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -39,11 +41,11 @@ class ProfileScreen extends StatelessWidget {
                       TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
             ),
             const SizedBox(height: Gap.sm),
-            _header(context),
+            _header(context, ref),
             const SizedBox(height: Gap.lg),
             ..._items.map((item) => _tile(context, item)),
             const SizedBox(height: Gap.lg),
-            _logoutTile(context),
+            _logoutTile(context, ref),
             const SizedBox(height: Gap.md),
             const Center(
               child: Text('Version 1.0.0',
@@ -56,51 +58,58 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _header(BuildContext context) => Container(
-        padding: const EdgeInsets.all(Gap.md),
-        decoration: BoxDecoration(
-          color: AppColors.chipBg,
-          borderRadius: BorderRadius.circular(Radii.card),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: const Text('RP',
-                  style: TextStyle(
-                      color: AppColors.onPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700)),
+  Widget _header(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authControllerProvider).asData?.value;
+    final name = user?.name ?? 'Guest';
+    final subtitle = (user?.phone.isNotEmpty ?? false)
+        ? user!.phone
+        : (user?.email ?? 'Not signed in');
+    return Container(
+      padding: const EdgeInsets.all(Gap.md),
+      decoration: BoxDecoration(
+        color: AppColors.chipBg,
+        borderRadius: BorderRadius.circular(Radii.card),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
             ),
-            const SizedBox(width: Gap.md),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Rishika Patel',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
-                  SizedBox(height: 2),
-                  Text('+91 98765 43210',
-                      style: TextStyle(
-                          fontSize: 13, color: AppColors.textMuted)),
-                ],
-              ),
+            alignment: Alignment.center,
+            child: Text(user?.initials ?? '?',
+                style: const TextStyle(
+                    color: AppColors.onPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(width: Gap.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.textMuted)),
+              ],
             ),
-            IconButton(
-              onPressed: () => context.push('/edit-profile'),
-              icon: const Icon(Icons.edit_outlined,
-                  size: 20, color: AppColors.primary),
-            ),
-          ],
-        ),
-      );
+          ),
+          IconButton(
+            onPressed: () => context.push('/edit-profile'),
+            icon: const Icon(Icons.edit_outlined,
+                size: 20, color: AppColors.primary),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _tile(BuildContext context, _MenuItem item) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
@@ -127,7 +136,7 @@ class ProfileScreen extends StatelessWidget {
         ),
       );
 
-  Widget _logoutTile(BuildContext context) => ListTile(
+  Widget _logoutTile(BuildContext context, WidgetRef ref) => ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Container(
           width: 42,
@@ -143,7 +152,10 @@ class ProfileScreen extends StatelessWidget {
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
                 color: AppColors.remove)),
-        onTap: () => context.go('/login'),
+        onTap: () async {
+          await ref.read(authControllerProvider.notifier).logout();
+          if (context.mounted) context.go('/login');
+        },
       );
 }
 

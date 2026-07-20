@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/brand_logo.dart';
+import '../../core/widgets/count_badge.dart';
 import '../../data/mock/mock_data.dart';
+import '../../data/models/category.dart';
+import '../../data/repositories/product_repository.dart';
 import 'collection_list_screen.dart';
 
 /// Collection tab — a curated browse landing: featured collections, category
 /// shortcuts, concerns, category & ingredient icon grids, and a CTA into the
 /// full catalogue.
-class CollectionScreen extends StatelessWidget {
+class CollectionScreen extends ConsumerWidget {
   const CollectionScreen({super.key});
 
   static const _collectionCards = <_CardItem>[
@@ -23,11 +27,15 @@ class CollectionScreen extends StatelessWidget {
         CollectionKind.discount),
   ];
 
-  static const _categoryRows = <_RowItem>[
-    _RowItem('Skin Care', 'assets/images/cat_skincare_lg.png', 'Skin care'),
-    _RowItem('Hair Care', 'assets/images/cat_haircare_lg.png', 'Hair care'),
-    _RowItem('Baby Care', 'assets/images/cat_babycare_lg.png', 'Baby Care'),
-  ];
+  // Maps a real category name to its large tile image.
+  static String _categoryImageLg(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('skin')) return 'assets/images/cat_skincare_lg.png';
+    if (n.contains('hair')) return 'assets/images/cat_haircare_lg.png';
+    if (n.contains('baby')) return 'assets/images/cat_babycare_lg.png';
+    if (n.contains('body')) return 'assets/images/cat_body.png';
+    return 'assets/images/cat_collection.png';
+  }
 
   static const _catIcons = <_IconItem>[
     _IconItem('Serum', 'assets/images/ic_serum.png'),
@@ -56,19 +64,25 @@ class CollectionScreen extends StatelessWidget {
       context.push('/all-products', extra: category);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categories =
+        ref.watch(categoriesProvider).asData?.value ?? const <Category>[];
     return Scaffold(
       body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.zero,
+        child: Column(
           children: [
+            // Fixed header — stays pinned while the rest scrolls.
             _topBar(context),
-            const SizedBox(height: 4),
-            _heading('Our Collections'),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  const SizedBox(height: 4),
+                  _heading('Our Collections'),
             const SizedBox(height: 14),
             _collectionRow(context),
             const SizedBox(height: 22),
-            ..._categoryRows.map((r) => _categoryRow(context, r)),
+            ...categories.map((c) => _categoryRow(context, c)),
             const SizedBox(height: 18),
             _heading('Shop by concern'),
             const SizedBox(height: 14),
@@ -82,8 +96,11 @@ class CollectionScreen extends StatelessWidget {
             const SizedBox(height: 14),
             _ingredientCard(context),
             const SizedBox(height: 26),
-            _ctaBanner(context),
-            const SizedBox(height: 16),
+                  _ctaBanner(context),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -91,18 +108,19 @@ class CollectionScreen extends StatelessWidget {
   }
 
   Widget _topBar(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(Gap.pagePadding, 4, 8, 8),
+        padding: const EdgeInsets.fromLTRB(Gap.pagePadding, 0, 8, 4),
         child: Row(
           children: [
             const BrandLogo(width: 120),
             const Spacer(),
-            IconButton(onPressed: () {}, icon: const Icon(Icons.search)),
+            IconButton(
+                onPressed: () => context.push('/all-products'),
+                icon: const Icon(Icons.search)),
             IconButton(
                 onPressed: () {},
                 icon: const Icon(Icons.notifications_none)),
-            IconButton(
-                onPressed: () => context.push('/wishlist'),
-                icon: const Icon(Icons.favorite_border)),
+            WishlistIconButton(
+                onPressed: () => context.push('/wishlist')),
           ],
         ),
       );
@@ -147,10 +165,10 @@ class CollectionScreen extends StatelessWidget {
       );
 
   // ---- Category list rows: photo • label • chevron, divided. ----
-  Widget _categoryRow(BuildContext context, _RowItem r) => Column(
+  Widget _categoryRow(BuildContext context, Category category) => Column(
         children: [
           InkWell(
-            onTap: () => context.push('/category', extra: r.category),
+            onTap: () => context.push('/category', extra: category),
             child: Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: Gap.pagePadding, vertical: 12),
@@ -158,12 +176,12 @@ class CollectionScreen extends StatelessWidget {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(14),
-                    child: Image.asset(r.asset,
+                    child: Image.asset(_categoryImageLg(category.name),
                         width: 86, height: 86, fit: BoxFit.cover),
                   ),
                   const SizedBox(width: 20),
                   Text(
-                    r.label,
+                    category.name,
                     style: const TextStyle(
                       fontFamily: _serif,
                       fontSize: 22,
@@ -346,13 +364,6 @@ class _CardItem {
   final String asset;
   final CollectionKind kind;
   const _CardItem(this.label, this.asset, this.kind);
-}
-
-class _RowItem {
-  final String label;
-  final String asset;
-  final String category;
-  const _RowItem(this.label, this.asset, this.category);
 }
 
 class _IconItem {
