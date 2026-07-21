@@ -43,8 +43,6 @@ final appRouter = GoRouter(
       ),
     ),
     GoRoute(path: '/checkout', builder: (_, __) => const CheckoutScreen()),
-    // Cart is a focused full-screen page (no bottom tab bar).
-    GoRoute(path: '/cart', builder: (_, __) => const CartScreen()),
     GoRoute(
       path: '/all-products',
       builder: (_, state) => AllProductsScreen(
@@ -84,6 +82,7 @@ final appRouter = GoRouter(
         GoRoute(
             path: '/collection',
             builder: (_, __) => const CollectionScreen()),
+        GoRoute(path: '/cart', builder: (_, __) => const CartScreen()),
         GoRoute(
             path: '/profile', builder: (_, __) => const ProfileScreen()),
       ],
