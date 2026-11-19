@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { Order } from '../models/Order.js';
 import { requireAuth } from '../middleware/auth.js';
 import { priceCart, PricingError } from '../services/pricing.js';
+import { CouponError } from '../services/coupons.js';
 import {
   razorpay,
   RAZORPAY_KEY_ID,
@@ -32,7 +33,7 @@ function makeReference() {
 /**
  * POST /api/payments/order — start a checkout.
  *
- * body: { items: [{ productSlug, size, qty }] }   // note: no prices
+ * body: { items: [{ productSlug, size, qty }], couponCode? }   // note: no prices
  *
  * Prices the cart from the database, records a 'Pending payment' order, and
  * opens a matching Razorpay order. Returns everything the app needs to launch
@@ -40,8 +41,9 @@ function makeReference() {
  */
 router.post('/order', requireAuth, async (req, res, next) => {
   try {
-    const { items: rawItems } = req.body || {};
-    const priced = await priceCart(rawItems);
+    const { items: rawItems, couponCode } = req.body || {};
+    // The coupon is re-checked here from scratch; whatever the app displayed is irrelevant.
+    const priced = await priceCart(rawItems, couponCode);
 
     let order;
     for (let attempt = 0; attempt < 5 && !order; attempt++) {
@@ -53,6 +55,8 @@ router.post('/order', requireAuth, async (req, res, next) => {
           items: priced.items,
           subtotal: priced.subtotal,
           deliveryFee: priced.deliveryFee,
+          couponCode: priced.coupon?.code,
+          discount: priced.discount,
           total: priced.total,
         });
       } catch (err) {
@@ -86,10 +90,12 @@ router.post('/order', requireAuth, async (req, res, next) => {
       keyId: RAZORPAY_KEY_ID,
       subtotal: priced.subtotal,
       deliveryFee: priced.deliveryFee,
+      couponCode: priced.coupon?.code ?? null,
+      discount: priced.discount,
       total: priced.total,
     });
   } catch (err) {
-    if (err instanceof PricingError) {
+    if (err instanceof PricingError || err instanceof CouponError) {
       return res.status(err.status).json({ error: err.message });
     }
     next(err);

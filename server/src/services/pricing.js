@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { Product } from '../models/Product.js';
+import { applyCoupon, publicCoupon } from './coupons.js';
 
 /** Flat delivery fee, in rupees. Mirrors CartController.deliveryFee. */
 export const DELIVERY_FEE = 69;
@@ -28,10 +29,13 @@ const pricingLabel = (p) => normaliseSize(`${p.quantity ?? ''}${p.unit ?? ''}`);
  * matches the amount we asked Razorpay for.
  *
  * @param {Array<{productSlug: string, size: string, qty: number}>} rawItems
- * @returns {Promise<{items: Array, subtotal: number, deliveryFee: number, total: number}>}
+ * @param {string} [couponCode] optional coupon; throws CouponError if it can't be applied
+ * @returns {Promise<{items: Array, subtotal: number, deliveryFee: number,
+ *   discount: number, coupon: object|null, total: number}>}
  *   `items` are full order lines (name and unit price resolved server-side).
+ *   `discount` is the coupon saving in rupees; total = subtotal + deliveryFee - discount.
  */
-export async function priceCart(rawItems) {
+export async function priceCart(rawItems, couponCode) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     throw new PricingError('items array is required');
   }
@@ -111,5 +115,20 @@ export async function priceCart(rawItems) {
     });
   }
 
-  return { items, subtotal, deliveryFee: DELIVERY_FEE, total: subtotal + DELIVERY_FEE };
+  let discount = 0;
+  let coupon = null;
+  if (couponCode != null && String(couponCode).trim() !== '') {
+    const applied = applyCoupon(couponCode, subtotal, DELIVERY_FEE);
+    discount = applied.discount;
+    coupon = publicCoupon(applied.coupon);
+  }
+
+  return {
+    items,
+    subtotal,
+    deliveryFee: DELIVERY_FEE,
+    discount,
+    coupon,
+    total: subtotal + DELIVERY_FEE - discount,
+  };
 }

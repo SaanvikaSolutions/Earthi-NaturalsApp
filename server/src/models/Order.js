@@ -47,6 +47,10 @@ const orderSchema = new mongoose.Schema(
     items: { type: [orderItemSchema], required: true },
     subtotal: { type: Number, required: true },
     deliveryFee: { type: Number, required: true, default: 0 },
+    // Coupon saving in rupees (for free-delivery coupons, the delivery fee waived).
+    // total = subtotal + deliveryFee - discount.
+    couponCode: { type: String },
+    discount: { type: Number, default: 0 },
     total: { type: Number, required: true },
     payment: { type: paymentSchema, default: () => ({}) },
   },

@@ -43,7 +43,9 @@ Health check: `curl http://localhost:4000/api/health` → `{"ok":true}`
 | POST   | `/api/wishlist/:slug` | JWT  | Add to wishlist                 |
 | DELETE | `/api/wishlist/:slug` | JWT  | Remove from wishlist            |
 | GET    | `/api/orders`         | JWT  | User's orders                   |
-| POST   | `/api/payments/order` | JWT  | Start checkout — prices the cart, opens a Razorpay order |
+| GET    | `/api/coupons`        | —    | Active coupon offers            |
+| POST   | `/api/coupons/validate` | —  | Check `{ code, items }` against a cart; returns the coupon or a customer-facing error |
+| POST   | `/api/payments/order` | JWT  | Start checkout — prices the cart (+ optional `couponCode`), opens a Razorpay order |
 | POST   | `/api/payments/verify`| JWT  | Verify the signature and place the order |
 | POST   | `/api/payments/webhook`| sig | Razorpay server-to-server confirmation |
 
@@ -54,7 +56,9 @@ Authenticated requests send `Authorization: Bearer <token>`.
 Checkout is three steps. Orders are created `Pending payment` and only become
 `Placed` once a signature has been verified here — never on the app's word.
 
-1. `POST /api/payments/order` with `{ items: [{ productSlug, size, qty }] }`.
+1. `POST /api/payments/order` with `{ items: [{ productSlug, size, qty }], couponCode? }`.
+   The coupon is re-applied server-side. Sample codes live in
+   `src/services/coupons.js` — replace them with the real offers before launch.
    Note there are **no prices in the request**: the server looks up every unit
    price in the `products` collection and computes the total itself. A patched
    app therefore cannot pay ₹1 for a ₹2000 order.

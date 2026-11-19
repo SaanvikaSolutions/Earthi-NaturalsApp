@@ -8,6 +8,7 @@ import authRouter from './routes/auth.js';
 import wishlistRouter from './routes/wishlist.js';
 import ordersRouter from './routes/orders.js';
 import paymentsRouter from './routes/payments.js';
+import couponsRouter from './routes/coupons.js';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/wishlist', wishlistRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/payments', paymentsRouter);
+app.use('/api/coupons', couponsRouter);
 
 // 404 + error handlers
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
