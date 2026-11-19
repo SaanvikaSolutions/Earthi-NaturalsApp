@@ -70,7 +70,9 @@ class CartController extends Notifier<List<CartItem>> {
   int get cartTotal => state.fold(0, (sum, i) => sum + i.product.price * i.qty);
   int get mrpTotal => state.fold(0, (sum, i) => sum + i.product.mrp * i.qty);
   int get discount => mrpTotal - cartTotal;
-  int get deliveryFee => state.isEmpty ? 0 : 69;
+  /// Flat delivery fee in rupees. Mirrors DELIVERY_FEE in server/src/services/pricing.js.
+  static const deliveryFeeRupees = 69;
+  int get deliveryFee => state.isEmpty ? 0 : deliveryFeeRupees;
   int get grandTotal => cartTotal + deliveryFee;
 }
 

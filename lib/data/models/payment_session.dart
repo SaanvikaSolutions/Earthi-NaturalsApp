@@ -12,6 +12,8 @@ class PaymentSession {
   final String keyId;
   final int subtotal;
   final int deliveryFee;
+  final String? couponCode;
+  final int discount; // coupon saving in rupees
   final int total; // rupees, for display
 
   const PaymentSession({
@@ -23,6 +25,8 @@ class PaymentSession {
     required this.keyId,
     required this.subtotal,
     required this.deliveryFee,
+    this.couponCode,
+    this.discount = 0,
     required this.total,
   });
 
@@ -36,6 +40,8 @@ class PaymentSession {
       keyId: json['keyId'] as String? ?? '',
       subtotal: (json['subtotal'] as num?)?.round() ?? 0,
       deliveryFee: (json['deliveryFee'] as num?)?.round() ?? 0,
+      couponCode: json['couponCode'] as String?,
+      discount: (json['discount'] as num?)?.round() ?? 0,
       total: (json['total'] as num?)?.round() ?? 0,
     );
   }

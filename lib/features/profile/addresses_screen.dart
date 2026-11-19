@@ -2,17 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/phone.dart';
 import '../../core/widgets/app_buttons.dart';
 import 'address_controller.dart';
 
 /// Saved Addresses — list of delivery addresses with add/edit/delete actions.
-/// Tapping a card makes it the delivery address used by cart and checkout.
+/// Tapping a card picks it as the delivery address for the current order only;
+/// "Set as default" is the only thing that moves the Default label.
 class AddressesScreen extends ConsumerWidget {
   const AddressesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final addresses = ref.watch(addressesProvider);
+    final selectedId = ref.watch(selectedAddressProvider)?.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -27,7 +30,9 @@ class AddressesScreen extends ConsumerWidget {
                       padding: const EdgeInsets.all(Gap.pagePadding),
                       itemCount: addresses.length,
                       separatorBuilder: (_, __) => const SizedBox(height: Gap.md),
-                      itemBuilder: (_, i) => _card(context, ref, addresses[i]),
+                      itemBuilder: (_, i) => _card(
+                          context, ref, addresses[i],
+                          selected: addresses[i].id == selectedId),
                     ),
             ),
             Padding(
@@ -57,14 +62,18 @@ class AddressesScreen extends ConsumerWidget {
         ),
       );
 
-  Widget _card(BuildContext context, WidgetRef ref, Address a) => InkWell(
-        onTap: () => ref.read(addressesProvider.notifier).setDefault(a.id),
+  Widget _card(BuildContext context, WidgetRef ref, Address a,
+          {required bool selected}) =>
+      InkWell(
+        // Picks the address for this order; does not touch the default.
+        onTap: () => ref.read(selectedAddressIdProvider.notifier).select(a.id),
         borderRadius: BorderRadius.circular(Radii.card),
         child: Container(
           padding: const EdgeInsets.all(Gap.md),
           decoration: BoxDecoration(
             border: Border.all(
-                color: a.isDefault ? AppColors.primary : AppColors.divider),
+                color: selected ? AppColors.primary : AppColors.divider,
+                width: selected ? 1.5 : 1),
             borderRadius: BorderRadius.circular(Radii.card),
           ),
           child: Column(
@@ -90,6 +99,15 @@ class AddressesScreen extends ConsumerWidget {
                             fontSize: 12,
                             color: AppColors.primary,
                             fontWeight: FontWeight.w600)),
+                  ],
+                  if (selected) ...[
+                    const SizedBox(width: 8),
+                    const Icon(Icons.check_circle,
+                        size: 16, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    const Text('Deliver here',
+                        style: TextStyle(
+                            fontSize: 12, color: AppColors.textMuted)),
                   ],
                   const Spacer(),
                   IconButton(
@@ -120,6 +138,29 @@ class AddressesScreen extends ConsumerWidget {
               Text(a.phone,
                   style: const TextStyle(
                       fontSize: 13, color: AppColors.textMuted)),
+              if (!a.isDefault)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () {
+                      ref.read(addressesProvider.notifier).setDefault(a.id);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Default address updated'),
+                            duration: Duration(milliseconds: 1200)),
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Set as default',
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w600)),
+                  ),
+                ),
             ],
           ),
         ),
@@ -292,11 +333,16 @@ class _AddressFormState extends State<_AddressForm> {
                 _field(_line, 'Address', maxLines: 3),
                 const SizedBox(height: 12),
                 _field(_phone, 'Phone number',
-                    keyboardType: TextInputType.phone),
+                    keyboardType: TextInputType.phone,
+                    validator: validateIndianPhone),
                 const SizedBox(height: 4),
                 CheckboxListTile(
                   value: _isDefault,
-                  onChanged: (v) => setState(() => _isDefault = v ?? false),
+                  // The current default can't be unticked: the default only moves
+                  // when another address is made the default.
+                  onChanged: widget.existing?.isDefault == true
+                      ? null
+                      : (v) => setState(() => _isDefault = v ?? false),
                   activeColor: AppColors.primary,
                   contentPadding: EdgeInsets.zero,
                   controlAffinity: ListTileControlAffinity.leading,
@@ -315,14 +361,18 @@ class _AddressFormState extends State<_AddressForm> {
   }
 
   Widget _field(TextEditingController controller, String label,
-          {int maxLines = 1, TextInputType? keyboardType}) =>
+          {int maxLines = 1,
+          TextInputType? keyboardType,
+          String? Function(String?)? validator}) =>
       TextFormField(
         controller: controller,
         maxLines: maxLines,
         keyboardType: keyboardType,
         textCapitalization: TextCapitalization.words,
-        validator: (v) =>
-            (v == null || v.trim().isEmpty) ? '$label is required' : null,
+        validator: validator ??
+            (v) => (v == null || v.trim().isEmpty)
+                ? '$label is required'
+                : null,
         decoration: InputDecoration(
           labelText: label,
           filled: true,

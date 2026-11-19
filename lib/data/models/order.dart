@@ -41,6 +41,8 @@ class Order {
   final List<OrderItem> items;
   final int subtotal;
   final int deliveryFee;
+  final String? couponCode;
+  final int discount; // coupon saving in rupees
   final int total;
   final DateTime? createdAt;
 
@@ -51,6 +53,8 @@ class Order {
     required this.items,
     this.subtotal = 0,
     this.deliveryFee = 0,
+    this.couponCode,
+    this.discount = 0,
     required this.total,
     this.createdAt,
   });
@@ -66,6 +70,8 @@ class Order {
           const [],
       subtotal: (json['subtotal'] as num?)?.round() ?? 0,
       deliveryFee: (json['deliveryFee'] as num?)?.round() ?? 0,
+      couponCode: json['couponCode'] as String?,
+      discount: (json['discount'] as num?)?.round() ?? 0,
       total: (json['total'] as num?)?.round() ?? 0,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString())

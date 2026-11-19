@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/phone.dart';
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/common_widgets.dart';
 import '../../data/api/api_client.dart';
@@ -10,7 +11,9 @@ import '../../data/models/order.dart';
 import '../../data/models/payment_session.dart';
 import '../../data/repositories/order_repository.dart';
 import '../../data/repositories/payment_repository.dart';
+import '../auth/auth_controller.dart';
 import '../cart/cart_controller.dart';
+import '../cart/coupon_controller.dart';
 import '../profile/address_controller.dart';
 
 class CheckoutScreen extends ConsumerWidget {
@@ -19,7 +22,7 @@ class CheckoutScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(cartProvider);
-    final cart = ref.read(cartProvider.notifier);
+    final summary = ref.watch(orderSummaryProvider);
     final address = ref.watch(selectedAddressProvider);
 
     return Scaffold(
@@ -86,12 +89,23 @@ class CheckoutScreen extends ConsumerWidget {
                   style:
                       TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 14),
-              _priceLine('Cart total (${items.length} items)', '₹${cart.cartTotal}'),
-              _priceLine('Discount on MRP', '-₹${cart.discount}',
+              _priceLine('Cart total (${items.length} items)',
+                  '₹${summary.cartTotal}'),
+              _priceLine('Discount on MRP', '-₹${summary.mrpDiscount}',
                   color: AppColors.discountText),
-              _priceLine('Delivery Fee', '₹${cart.deliveryFee}'),
+              _priceLine('Delivery Fee', '₹${summary.deliveryFee}'),
+              if (summary.coupon != null)
+                _priceLine('Coupon (${summary.coupon!.code})',
+                    '-₹${summary.couponDiscount}',
+                    color: AppColors.discountText),
               const Divider(height: 24),
-              _priceLine('You Pay', '₹${cart.grandTotal}', bold: true),
+              _priceLine('You Pay', '₹${summary.grandTotal}', bold: true),
+              if (summary.couponProblem != null) ...[
+                const SizedBox(height: 8),
+                Text(summary.couponProblem!,
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.remove)),
+              ],
             ],
           )),
           const SizedBox(height: 14),
@@ -160,6 +174,11 @@ class CheckoutScreen extends ConsumerWidget {
   Future<void> _placeOrder(BuildContext context, WidgetRef ref) async {
     final cart = ref.read(cartProvider.notifier);
     final address = ref.read(selectedAddressProvider);
+    final coupon = ref.read(orderSummaryProvider).coupon;
+    // Grabbed before the awaits below, so they still work if the screen goes away.
+    final couponCtl = ref.read(couponProvider.notifier);
+    final pickedAddress = ref.read(selectedAddressIdProvider.notifier);
+    final user = ref.read(authControllerProvider).asData?.value;
     final items = ref
         .read(cartProvider)
         .map((i) => OrderItem(
@@ -179,7 +198,7 @@ class CheckoutScreen extends ConsumerWidget {
     _showLoading(context);
     final PaymentSession session;
     try {
-      session = await payments.startCheckout(items);
+      session = await payments.startCheckout(items, couponCode: coupon?.code);
     } on ApiException catch (e) {
       if (!context.mounted) return;
       Navigator.pop(context);
@@ -195,7 +214,15 @@ class CheckoutScreen extends ConsumerWidget {
     // 2 — hand over to Razorpay.
     final PaymentResult result;
     try {
-      result = await payments.presentCheckout(session, contact: address?.phone);
+      // Pre-fill Razorpay so it never asks for what the customer already gave
+      // us: the delivery address's phone first, else the one on their account,
+      // whichever is a valid number once cleaned up.
+      final contact = [address?.phone, user?.phone]
+          .map(razorpayContact)
+          .whereType<String>()
+          .firstOrNull;
+      result = await payments.presentCheckout(session,
+          contact: contact, email: user?.email);
     } on PaymentCancelled catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
       return;
@@ -204,6 +231,8 @@ class CheckoutScreen extends ConsumerWidget {
     // Money has moved. Clear the cart now so a retry can't charge them twice,
     // whatever verification says next.
     cart.clear();
+    couponCtl.remove();
+    pickedAddress.clear();
 
     // 3 — only the backend can validate the signature.
     if (context.mounted) _showLoading(context);

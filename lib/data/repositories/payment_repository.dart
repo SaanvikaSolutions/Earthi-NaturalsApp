@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import '../api/api_client.dart';
+import '../../core/utils/phone.dart';
 import '../api/api_providers.dart';
 import '../models/order.dart';
 import '../models/payment_session.dart';
@@ -16,9 +17,12 @@ class PaymentRepository {
   final ApiClient _api;
 
   /// Step 1 — price the cart server-side and open a Razorpay order for it.
-  /// Only *what* is being bought is sent; prices come from the database.
-  Future<PaymentSession> startCheckout(List<OrderItem> items) async {
+  /// Only *what* is being bought (and the coupon code, if any) is sent; prices
+  /// and the discount are worked out on the server.
+  Future<PaymentSession> startCheckout(List<OrderItem> items,
+      {String? couponCode}) async {
     final data = await _api.post('/payments/order', {
+      if (couponCode != null && couponCode.isNotEmpty) 'couponCode': couponCode,
       'items': items
           .map((i) => {
                 'productSlug': i.productSlug,
@@ -40,6 +44,13 @@ class PaymentRepository {
     String? contact,
     String? email,
   }) {
+    // Razorpay only pre-fills a contact it can parse ("+91" + 10 digits). A
+    // number passed as typed — spaces, dashes, no country code — is ignored and
+    // the customer is asked for it again, so clean it here.
+    final cleanContact = razorpayContact(contact);
+    final cleanEmail = email?.trim();
+    final hasEmail = cleanEmail != null && cleanEmail.isNotEmpty;
+
     final razorpay = Razorpay();
     final completer = Completer<PaymentResult>();
 
@@ -83,10 +94,10 @@ class PaymentRepository {
       'currency': session.currency,
       'name': 'Earthi Naturals',
       'description': 'Order ${session.reference}',
-      if (contact != null && contact.isNotEmpty || email != null && email.isNotEmpty)
+      if (cleanContact != null || hasEmail)
         'prefill': {
-          if (contact != null && contact.isNotEmpty) 'contact': contact,
-          if (email != null && email.isNotEmpty) 'email': email,
+          if (cleanContact != null) 'contact': cleanContact,
+          if (hasEmail) 'email': cleanEmail,
         },
       'theme': {'color': '#4C7A45'},
     });

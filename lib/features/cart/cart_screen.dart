@@ -7,10 +7,13 @@ import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/common_widgets.dart';
 import '../../core/widgets/count_badge.dart';
 import '../../data/api/api_client.dart';
+import '../../data/models/coupon.dart';
 import '../../data/models/product.dart';
+import '../../data/repositories/coupon_repository.dart';
 import '../../data/repositories/wishlist_repository.dart';
 import '../profile/address_controller.dart';
 import 'cart_controller.dart';
+import 'coupon_controller.dart';
 
 class CartScreen extends ConsumerWidget {
   const CartScreen({super.key});
@@ -77,10 +80,11 @@ class CartScreen extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  _couponCard(),
+                  const _CouponCard(),
                 ],
               ),
-        bottomNavigationBar: items.isEmpty ? null : _payBar(context, cart),
+        bottomNavigationBar:
+            items.isEmpty ? null : _payBar(context, ref.watch(orderSummaryProvider)),
       ),
     );
   }
@@ -127,45 +131,7 @@ class CartScreen extends ConsumerWidget {
     ),
   );
 
-  Widget _couponCard() => _card(
-    Row(
-      children: [
-        const Icon(Icons.local_offer_outlined, size: 20),
-        const SizedBox(width: 10),
-        Expanded(
-          child: TextField(
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'Add Coupon code',
-              hintStyle: const TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 14,
-              ),
-              filled: true,
-              fillColor: AppColors.chipBg,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(Radii.input),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        PrimaryButton(
-          label: 'Apply',
-          color: AppColors.accentBlack,
-          height: 44,
-          onPressed: () {},
-        ).constrainWidth(96),
-      ],
-    ),
-  );
-
-  Widget _payBar(BuildContext context, CartController cart) => SafeArea(
+  Widget _payBar(BuildContext context, OrderSummary summary) => SafeArea(
     child: Container(
       padding: const EdgeInsets.fromLTRB(
         Gap.pagePadding,
@@ -181,15 +147,22 @@ class CartScreen extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '₹${cart.grandTotal}',
+                '₹${summary.grandTotal}',
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const Text(
-                'Grand Total',
-                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+              Text(
+                summary.couponDiscount > 0
+                    ? 'Grand Total · coupon saves ₹${summary.couponDiscount}'
+                    : 'Grand Total',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: summary.couponDiscount > 0
+                      ? AppColors.discountText
+                      : AppColors.textMuted,
+                ),
               ),
             ],
           ),
@@ -445,4 +418,270 @@ class _CartItemRow extends StatelessWidget {
 
 extension on Widget {
   Widget constrainWidth(double w) => SizedBox(width: w, child: this);
+}
+
+/// Coupon box in the cart: type a code or pick an offer, see the saving, remove it.
+class _CouponCard extends ConsumerStatefulWidget {
+  const _CouponCard();
+
+  @override
+  ConsumerState<_CouponCard> createState() => _CouponCardState();
+}
+
+class _CouponCardState extends ConsumerState<_CouponCard> {
+  final _controller = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// Asks the server whether [picked] (or the typed code) works for this cart.
+  Future<void> _apply([String? picked]) async {
+    final code = (picked ?? _controller.text).trim();
+    if (code.isEmpty) {
+      setState(() => _error = 'Enter a coupon code');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final coupon = await ref
+          .read(couponRepositoryProvider)
+          .validate(code, ref.read(cartProvider));
+      if (!mounted) return;
+      ref.read(couponProvider.notifier).apply(coupon);
+      _controller.clear();
+      setState(() => _busy = false);
+      final saved = ref.read(orderSummaryProvider).couponDiscount;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${coupon.code} applied — you save ₹$saved'),
+        duration: const Duration(milliseconds: 1500),
+      ));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.message; // "Invalid coupon code", "Add ₹X more...", etc.
+      });
+    }
+  }
+
+  Future<void> _pickOffer() async {
+    final code = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _OffersSheet(),
+    );
+    if (code == null || !mounted) return;
+    _controller.text = code;
+    await _apply(code);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final applied = ref.watch(couponProvider);
+    final summary = ref.watch(orderSummaryProvider);
+
+    if (applied != null) {
+      final problem = summary.couponProblem;
+      return _card(
+        Row(
+          children: [
+            Icon(problem == null ? Icons.check_circle : Icons.info_outline,
+                size: 22,
+                color: problem == null
+                    ? AppColors.discountText
+                    : AppColors.remove),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    problem == null ? '${applied.code} applied' : applied.code,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    problem ?? 'You save ₹${summary.couponDiscount}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: problem == null
+                          ? AppColors.discountText
+                          : AppColors.remove,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () => ref.read(couponProvider.notifier).remove(),
+              style: TextButton.styleFrom(foregroundColor: AppColors.remove),
+              child: const Text('Remove'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return _card(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 10),
+                child: Icon(Icons.local_offer_outlined, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  enabled: !_busy,
+                  textCapitalization: TextCapitalization.characters,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _apply(),
+                  onChanged: (_) {
+                    if (_error != null) setState(() => _error = null);
+                  },
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Add Coupon code',
+                    hintStyle: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 14,
+                    ),
+                    errorText: _error,
+                    errorMaxLines: 2,
+                    filled: true,
+                    fillColor: AppColors.chipBg,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(Radii.input),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(top: 0),
+                child: PrimaryButton(
+                  label: _busy ? 'Applying…' : 'Apply',
+                  color: AppColors.accentBlack,
+                  height: 44,
+                  onPressed: _busy ? null : _apply,
+                ).constrainWidth(96),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 30, top: 4),
+            child: TextButton(
+              onPressed: _busy ? null : _pickOffer,
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 32),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('View available offers',
+                  style:
+                      TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom sheet listing the offers; pops the chosen code.
+class _OffersSheet extends ConsumerWidget {
+  const _OffersSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offers = ref.watch(availableCouponsProvider);
+    final cartTotal = ref.watch(orderSummaryProvider).cartTotal;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Gap.pagePadding),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Available offers',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            offers.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 32),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  e is ApiException
+                      ? e.message
+                      : "Couldn't load offers. Try again.",
+                  style: const TextStyle(color: AppColors.textMuted),
+                ),
+              ),
+              data: (list) => list.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('No offers right now.',
+                          style: TextStyle(color: AppColors.textMuted)),
+                    )
+                  : Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: list.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, i) =>
+                            _offerTile(context, list[i], cartTotal),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _offerTile(BuildContext context, Coupon c, int cartTotal) {
+    final eligible = c.isEligible(cartTotal);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(c.code,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+      subtitle: Text(
+        eligible
+            ? '${c.title} · min cart ₹${c.minCart}'
+            : '${c.title} · add ₹${c.shortfall(cartTotal)} more to use',
+        style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+      ),
+      trailing: TextButton(
+        onPressed: eligible ? () => Navigator.pop(context, c.code) : null,
+        child: const Text('Apply'),
+      ),
+    );
+  }
 }
